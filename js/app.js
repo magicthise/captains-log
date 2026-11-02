@@ -1,8 +1,11 @@
 // Captain's Log (web): a read-only, offline view of the vault index for iPhone, iPad and
-// the Pixel. Screens: Today, Logistics, Find (browse and search), cards, notes and Data.
+// the Pixel. Five tabs (Richard, 02/11/2026): News and signals, Diary, Meetings, Research and
+// Projects, Media and Events. Find and Data sit in the header; Today, Logistics, cards, notes
+// and meeting workups are reached from the tabs.
 import * as store from "./store.js";
 import { sqlReady, Ix, card, item, KIND_LABEL, CLOSED, ddmm, money, crmState } from "./index.js";
 import { briefingDates, briefingFor, nowAndNext, hhmm, prep } from "./brief.js";
+import { dashboard, fresh, staleOf, markOf, stamp, workingDays } from "./dash.js";
 
 const $ = (id) => document.getElementById(id);
 const view = $("view");
@@ -235,10 +238,19 @@ function viewWorkup(date, id) {
   const w = b.workups.find((x) => x.id === id);
   setTitle("Meeting");
   if (!w) return [h("p", { class: "empty" }, "That meeting is not in the briefing.")];
-  const order = ["tldr", "watch", "starters"];
-  const ps = [...w.parts].sort((a, b2) => (order.indexOf(a.kind) + 1 || 9) - (order.indexOf(b2.kind) + 1 || 9));
   const out = [h("div", { class: "kicker" }, `${shortDay(date)} · ${w.time}`), h("h2", { class: "headline" }, w.title)];
   if (w.where) out.push(h("p", { class: "note" }, w.where));
+  out.push(...workupNodes(w));
+  const mb = b.docs.find((d) => d.series === "Meeting Brief");
+  if (mb) out.push(h("p", {}, h("a", { href: "#/card/" + enc(mb.uid) }, "Open the whole Meeting Brief")));
+  return out;
+}
+
+/** A workup's parts as cards, TL;DR, Watch out and starters first. */
+function workupNodes(w) {
+  const order = ["tldr", "watch", "starters"];
+  const ps = [...w.parts].sort((a, b2) => (order.indexOf(a.kind) + 1 || 9) - (order.indexOf(b2.kind) + 1 || 9));
+  const out = [];
   if (w.intro.length) out.push(h("div", { class: "card" }, mdNode(w.intro)));
   for (const p of ps) {
     const body = h("div", { class: "card part " + p.kind }, h("h2", {}, p.label));
@@ -246,8 +258,6 @@ function viewWorkup(date, id) {
     if (p.tokens.length) body.append(mdNode(p.tokens));
     out.push(body);
   }
-  const mb = b.docs.find((d) => d.series === "Meeting Brief");
-  if (mb) out.push(h("p", {}, h("a", { href: "#/card/" + enc(mb.uid) }, "Open the whole Meeting Brief")));
   return out;
 }
 
@@ -267,7 +277,6 @@ const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, 
 const addDays = (iso, n) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n); return isoOf(d); };
 const weekend = (iso) => [0, 6].includes(new Date(iso + "T12:00:00").getDay());
 const dayHead = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
-const stamp = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/.exec(s || ""); return m ? `${m[3]}/${m[2]} ${m[4]}` : s || "?"; };
 const anchor = (key) => "ev-" + [...key].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7).toString(36);
 /** An organiser as a name: diarycheck.py's split_name ("Mark.Hagart@gov.scot", "Brett, Serena", "(Datavita) Danny Quinn"). */
 function orgName(raw) {
@@ -369,8 +378,26 @@ function entryCard(ev, flags, ruled) {
   return card;
 }
 
-function viewLogistics() {
+/** The boxes at the top of a screen, each a filter (Richard, 02/11/2026): tap one to show only
+ *  what it counts, tap it again for everything. The filter lives in the address (?f=), so the
+ *  breadcrumbs and Back keep it. */
+function filterTiles(base, active, tiles, cls = "") {
+  return h("div", { class: "lg-tiles " + cls }, tiles.map(([key, n, label, tone]) => {
+    const on = Boolean(key) && active === key;
+    return h("a", { class: "lg-tile" + (n ? tone : "") + (on ? " on" : ""), href: on || !key ? base : `${base}?f=${key}`,
+      "aria-pressed": on ? "true" : "false" }, h("b", {}, n), h("span", {}, label));
+  }));
+}
+
+function filterLine(base, label) {
+  return h("div", { class: "filt" }, `Showing ${label} only · `, h("a", { href: base }, "show everything"));
+}
+
+const LG_FILTERS = { person: "in person", problems: "problems", check: "things to check", settled: "settled points" };
+
+function viewLogistics(params) {
   setTitle("Logistics");
+  const f = LG_FILTERS[params && params.get("f")] ? params.get("f") : null;
   const dc = diaryCheck();
   if (!dc) return [h("p", { class: "empty" }, "No DiaryCheck read in this index yet. StartOfDay and EndOfDay run it; the next index build carries it here.")];
   const st = diaryNow(dc);
@@ -388,12 +415,12 @@ function viewLogistics() {
 
   const ahead = dc.events.filter((e) => e.cls !== "banner" && !st.past(e));
   const inPerson = ahead.filter((e) => e.where && e.where.mode === "in-person" && e.attending !== false);
-  out.push(h("div", { class: "lg-tiles" },
-    [[ahead.length, "ahead", ""], [inPerson.length, "in person", ""], [st.problems.length, "problems", " red"], [st.checks.length, "to check", " amber"], [st.ruled.length, "settled", ""]]
-      .map(([n, l, c]) => h("div", { class: "lg-tile" + (n ? c : "") }, h("b", {}, n), h("span", {}, l)))));
+  out.push(filterTiles("#/logistics", f, [[null, ahead.length, "ahead", ""], ["person", inPerson.length, "in person", ""],
+    ["problems", st.problems.length, "problems", " red"], ["check", st.checks.length, "to check", " amber"], ["settled", st.ruled.length, "settled", ""]]));
+  if (f) out.push(filterLine("#/logistics", LG_FILTERS[f]));
 
-  const needs = [...st.problems, ...st.checks].sort((a, b) => (a.n || 999) - (b.n || 999));
-  if (needs.length) {
+  const needs = [...(f === "check" ? [] : st.problems), ...(f === "problems" ? [] : st.checks)].sort((a, b) => (a.n || 999) - (b.n || 999));
+  if (needs.length && f !== "person" && f !== "settled") {
     const list = h("ul", { class: "items" });
     for (const c of needs) {
       const target = anchor(c.event.split(" × ")[0]);
@@ -411,8 +438,20 @@ function viewLogistics() {
   for (const c of st.open) for (const key of c.event.split(" × ")) push2(byEv, key, c);
   for (const c of st.ruled) for (const key of c.event.split(" × ")) push2(ruledEv, key, c);
   const end = w.to && w.to > last ? w.to : last;
+  const keep = {
+    person: (e) => e.where && e.where.mode === "in-person" && e.attending !== false,
+    problems: (e) => (byEv.get(e.key) || []).some((c) => c.sev === "red"),
+    check: (e) => (byEv.get(e.key) || []).some((c) => c.sev === "amber"),
+    settled: (e) => ruledEv.has(e.key),
+  }[f];
   for (let d = today; d <= end; d = addDays(d, 1)) {
     const des = dc.events.filter((e) => e.date === d).sort((a, b) => (a.start || "").localeCompare(b.start || "") || a.subject.localeCompare(b.subject));
+    if (keep) {                                  // a filter: only the matching entries, each in full
+      const hits = des.filter((e) => e.cls !== "banner" && !st.past(e) && keep(e));
+      if (hits.length) out.push(h("div", { class: "sec lg-day" }, h("h2", {}, dayHead(d), d === today ? h("span", { class: "count" }, "today") : null),
+        hits.map((e) => entryCard(e, byEv.get(e.key) || [], ruledEv.get(e.key) || []))));
+      continue;
+    }
     const rest = des.filter((e) => e.cls !== "banner");
     if (weekend(d) && !rest.length) continue;
     const info = (dc.days || {})[d] || {};
@@ -452,6 +491,366 @@ function logisticsPointer() {
     h("div", { class: "kicker" }, "Logistics"),
     h("div", { class: "t" }, todays.length ? `${todays.length} to look at today` : "Nothing to look at today",
       ` · ${st.problems.length} problem${st.problems.length === 1 ? "" : "s"} and ${st.checks.length} to check in the next 7 working days ›`));
+}
+
+// ---------------------------------------------------------------------------
+// The five tabs (Richard, 02/11/2026): News and signals, Diary, Meetings, Research and
+// Projects, Media and Events. Their data is prepare.py's (meta "dashboard"); people, places
+// and problems are DiaryCheck's (meta "diarycheck"), joined on the entry key. Every record
+// that rests on Outlook, mail or Salesforce carries an out-of-date marker once its source is
+// older than that source's limit, worked out on this device when the page is drawn.
+// ---------------------------------------------------------------------------
+const MARK = { ok: "✓", warn: "⚠" };
+const STANCE = { for: "ok", against: "red", qualified: "amber", watch: "" };
+const TONE = { green: "ok", amber: "amber", red: "red", blue: "blue" };
+
+function noDashboard() {
+  return [h("p", { class: "empty" }, "This index has no prepared data for the five tabs yet. Refresh it from Data once the Mac or the cloud has published a new one.")];
+}
+
+/** ⚠ or ✓ for a diary entry. A ✓ resting on out-of-date facts is grey, never green. */
+function markEl(rec, d) {
+  const m = markOf(rec);
+  if (!m) return null;
+  const old = m === "ok" && staleOf(d, rec.src);
+  return h("span", { class: `mk ${m}${old ? " old" : ""}`, title: m === "warn" ? "Needs attention" : old ? "Ticked from out-of-date facts" : "In hand" }, MARK[m]);
+}
+
+/** The out-of-date marker beside a record: ⏱ out of date · Outlook 02/11 09:40. */
+function oodEl(d, srcs) {
+  const f = staleOf(d, srcs);
+  return f ? h("div", {}, h("span", { class: "ood" }, `⏱ out of date · ${f.label} ${stamp(f.at)}`)) : null;
+}
+
+/** A tab's first lines: when each of its sources was last read, and a banner for any out of date. */
+function sourcesLine(d, keys, extra) {
+  const fs = keys.map((k) => fresh(d, k));
+  const out = [h("p", { class: "note srcs" }, ...fs.map((f, i) => [i ? " · " : "", `${f.label} ${stamp(f.at)}`]),
+    `${fs.length ? " · " : ""}prepared ${stamp(d.prepared_at)}`)];
+  const old = fs.filter((f) => f.stale);
+  if (old.length) out.push(h("div", { class: "banner" }, h("b", {}, "⏱ Out of date. "),
+    old.map((f) => `${f.label} was last read ${stamp(f.at)}, ${f.why}.`).join(" "), extra ? " " + extra : ""));
+  return out;
+}
+
+/** prepare.py's entries joined to DiaryCheck's, one per key, in time order. */
+function joined(d) {
+  const dc = diaryCheck();
+  if (!dc) return [];
+  const byKey = new Map(dc.events.map((e) => [e.key, e]));
+  const seen = new Set();
+  return d.diary.entries.filter((r) => byKey.has(r.key) && !seen.has(r.key) && seen.add(r.key))
+    .map((r) => ({ r, e: byKey.get(r.key) }))
+    .sort((a, b) => a.e.date.localeCompare(b.e.date) || (a.e.start || "").localeCompare(b.e.start || ""));
+}
+
+function whereShort(e) {
+  const w = e.where || {};
+  if (w.mode === "in-person") return w.place_name || e.location || "In person";
+  if (w.mode === "hybrid") return `Teams${w.room ? " · " + w.room + " booked" : ""}`;
+  if (w.mode === "teams") return "Teams";
+  if (w.mode === "phone") return "Call";
+  return e.location || "";
+}
+
+function reasonsOf(r) {
+  const warn = [...(r.logistics && r.logistics.state === "warn" ? r.logistics.reasons : []),
+    ...(r.prep && r.prep.state === "warn" ? r.prep.reasons : [])];
+  return { warn, ok: warn.length ? [] : [r.prep && r.prep.state === "ok" ? r.prep.reasons[0] : null].filter(Boolean) };
+}
+
+function entryRow(x, d, past) {
+  const { r, e } = x;
+  const rs = reasonsOf(r);
+  return h("li", {}, h("a", { class: "item" + (past ? " past" : ""), href: "#/meeting/" + enc(r.key) },
+    h("div", { class: "time" }, e.all_day ? "all day" : e.start || "—", e.end ? h("div", { class: "n" }, e.end) : null),
+    h("div", { class: "main" }, h("div", { class: "t" }, e.subject),
+      whereShort(e) ? h("div", { class: "s" }, whereShort(e)) : null,
+      rs.warn.map((t) => h("div", { class: "n warn-t" }, "⚠ " + t)),
+      rs.ok.map((t) => h("div", { class: "n" }, t)),
+      past ? null : oodEl(d, r.src)),
+    h("div", { class: "side" }, markEl(r, d))));
+}
+
+function viewDiary(params) {
+  setTitle("Diary");
+  const d = dashboard(ix), dc = diaryCheck();
+  if (!d || !dc) return noDashboard();
+  const f = ["warn", "ok"].includes(params && params.get("f")) ? params.get("f") : null;
+  const pass = (x) => !f || markOf(x.r) === f;
+  const st = diaryNow(dc);
+  const xs = joined(d);
+  const to = (dc.window || {}).to;
+  const out = sourcesLine(d, ["outlook"], "Anything added in Outlook since then is not shown; StartOfDay and EndOfDay re-read it.");
+  const ahead = xs.filter((x) => x.e.cls !== "banner" && x.e.attending !== false && !st.past(x.e));
+  out.push(filterTiles("#/diary", f, [[null, ahead.length, "ahead", ""], ["warn", ahead.filter((x) => markOf(x.r) === "warn").length, "⚠ to sort", " amber"],
+    ["ok", ahead.filter((x) => markOf(x.r) === "ok").length, "✓ in hand", ""]], "three"));
+  if (f) out.push(filterLine("#/diary", f === "warn" ? "what needs sorting" : "what is in hand"));
+
+  out.push(h("h2", { class: "tabh" }, "Next 3 days"));
+  for (const day of workingDays(st.today, 3)) {
+    const des = xs.filter((x) => x.e.date === day);
+    const banners = [...new Set(des.filter((x) => x.e.cls === "banner").map((x) => x.e.subject))];
+    const rest = des.filter((x) => x.e.cls !== "banner" && x.e.attending !== false && pass(x) && !(f && st.past(x.e)));
+    const sec = h("div", { class: "sec" }, h("h2", {}, dayHead(day), day === st.today ? h("span", { class: "count" }, "today") : null),
+      banners.length ? h("p", { class: "note" }, banners.join(" · ")) : null);
+    if (to && day > to) sec.append(h("div", { class: "lg-mini" }, "Not read from Outlook yet."));
+    else if (!rest.length) sec.append(h("div", { class: "lg-mini" }, f ? "Nothing that matches." : "Nothing in the diary."));
+    else sec.append(h("div", { class: "card" }, h("ul", { class: "items timeline" }, rest.map((x) => entryRow(x, d, st.past(x.e))))));
+    out.push(sec);
+  }
+
+  out.push(h("h2", { class: "tabh" }, "The week"));
+  const week = h("div", { class: "card week" });
+  for (const day of workingDays(st.today, 7)) {
+    const rest = xs.filter((x) => x.e.date === day && !["banner", "travel"].includes(x.e.cls) && x.e.attending !== false && !st.past(x.e) && pass(x));
+    const chips = rest.map((x) => {
+      const m = markOf(x.r);
+      const old = m === "ok" && staleOf(d, x.r.src);
+      const label = x.e.subject.split(/\s+/).slice(0, 4).join(" ");
+      return h("a", { class: `chip ${m || ""}${old ? " old" : ""}`, href: "#/meeting/" + enc(x.r.key) },
+        x.e.start || "all day", m ? " " + MARK[m] : "", " ", label);
+    });
+    week.append(h("div", { class: "wk-day" }, h("div", { class: "wk-d" }, shortDay(day)),
+      h("div", { class: "wk-chips" }, to && day > to ? h("span", { class: "lg-mini" }, "not read yet") : chips.length ? chips : h("span", { class: "lg-mini" }, "nothing"))));
+  }
+  out.push(week, h("p", { class: "note" }, "⚠ needs sorting · ✓ logistics and prep in hand · grey ✓ ticked from out-of-date facts. ",
+    h("a", { href: "#/today" }, "Today's full briefing ›")));
+  return out;
+}
+
+const RESP_MARK = { accepted: "✓", organiser: "✓", tentative: "?", declined: "✗" };
+
+function meetingBlock(x, d, st) {
+  const { r, e } = x;
+  const b = r.brief || {};
+  const ev = r.event ? (d.events || []).find((v) => v.uid === r.event) : null;
+  const ppl = (e.people || []).filter((p) => p.side !== "self");
+  const acc = ppl.filter((p) => ["accepted", "organiser"].includes(p.response)).length;
+  const past = st.past(e);
+  const rs = reasonsOf(r);
+  const row = (label, ...kids) => h("div", { class: "mt-row" }, h("b", {}, label), ...kids);
+  const about = b.tldr || (ev && (ev.headline || ev.brief)) || null;
+  return h("div", { class: "card mt" + (past ? " past" : "") },
+    h("div", { class: "mt-head" }, h("div", { class: "t" }, `${e.all_day ? "All day" : `${e.start || ""}–${e.end || ""}`} · ${e.subject}`), markEl(r, d)),
+    h("div", { class: "lg-where" }, whereLine(e)),
+    e.logistics ? h("div", { class: "lg-how" }, e.logistics) : null,
+    row("About", about || h("span", { class: "faint" }, b.path ? "Brief ready, with no summary line." : r.prep && r.prep.state === "warn" ? "No brief yet." : "No brief: internal or personal.")),
+    ppl.length ? row("Who", ppl.slice(0, 8).flatMap((p, i) => [i ? " · " : "", p.name, " ", h("span", { class: "rm " + (RESP[p.response] || "amber") }, RESP_MARK[p.response] || "…")]),
+      ppl.length > 8 ? ` · +${ppl.length - 8}` : null)
+      : b.who && b.who.length ? row("Who", b.who.map((p) => p.name).join(" · ")) : null,
+    b.want ? row("Aim", b.want) : null,
+    row("Organised", ppl.length ? `${acc} of ${ppl.length} accepted.` : "",
+      rs.warn.length ? rs.warn.map((t) => h("div", { class: "warn-t" }, "⚠ " + t))
+        : (r.logistics && r.logistics.reasons.filter((t) => t !== e.logistics && t !== "Nothing open").map((t) => " " + t))),
+    past ? null : oodEl(d, r.src),
+    h("a", { class: "btn-link", href: "#/meeting/" + enc(r.key) }, b.path ? "Full brief and links ›" : "Details and links ›"));
+}
+
+function viewMeetings() {
+  setTitle("Meetings");
+  const d = dashboard(ix), dc = diaryCheck();
+  if (!d || !dc) return noDashboard();
+  const st = diaryNow(dc);
+  const xs = joined(d).filter((x) => x.e.cls !== "banner" && x.e.attending !== false
+    && (["external", "internal"].includes(x.e.cls) || x.r.event || x.r.brief));
+  const to = (dc.window || {}).to;
+  const out = sourcesLine(d, ["outlook"], "Who has accepted may have changed since.");
+  for (const day of workingDays(st.today, 7)) {
+    if (to && day > to) break;
+    const ms = xs.filter((x) => x.e.date === day);
+    if (!ms.length) continue;
+    out.push(h("div", { class: "sec" }, h("h2", {}, dayHead(day), day === st.today ? h("span", { class: "count" }, "today") : null),
+      ms.map((x) => meetingBlock(x, d, st))));
+  }
+  if (out.length <= 2) out.push(h("p", { class: "empty" }, "No meetings in the diary read."));
+  out.push(h("p", { class: "note" }, h("a", { href: "#/logistics" }, "DiaryCheck's full logistics and numbered problems ›")));
+  return out;
+}
+
+/** The records a brief names, at the top of its drill-down: Ids, quote numbers, files, the event. */
+function linkedItems(r) {
+  const uids = new Set();
+  const l = (r.brief && r.brief.links) || {};
+  for (const id of l.sfids || []) { const u = ix.bySfid(id); if (u) uids.add(u); }
+  for (const q of l.quotes || []) { const u = ix.quoteByNumber(q); if (u) uids.add(u); }
+  for (const p of l.paths || []) { const u = ix.byPath(p); if (u) uids.add(u); }
+  if (r.event && ix.ent.has(r.event)) uids.add(r.event);
+  const rank = { account: 0, opportunity: 1, quote: 2, event: 3, project: 4, radar: 5, task: 6, document: 7 };
+  return [...uids].map((u) => item(ix, u)).sort((a, b) => (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9));
+}
+
+function viewMeeting(key) {
+  setTitle("Meeting");
+  const d = dashboard(ix), dc = diaryCheck();
+  const r = d && d.diary.entries.find((x) => x.key === key);
+  const e = dc && dc.events.find((x) => x.key === key);
+  if (!r || !e) return [h("p", { class: "empty" }, "That entry is not in the diary read.")];
+  const out = [h("div", { class: "kicker" }, `${shortDay(e.date)} · ${e.all_day ? "all day" : `${e.start || ""}–${e.end || ""}`}`),
+    h("div", { class: "mt-head" }, h("h2", { class: "headline" }, e.subject), markEl(r, d)), oodEl(d, r.src)];
+  const state = (label, s) => s && s.state !== "none" ? h("div", { class: "mt-row" }, h("b", {}, label),
+    h("span", { class: "mk sm " + (s.state === "warn" ? "warn" : s.state === "ok" ? "ok" : "") }, s.state === "warn" ? "⚠" : s.state === "ok" ? "✓" : "–"), " ", s.reasons.join(" · ")) : null;
+  out.push(h("div", { class: "card" }, state("Logistics", r.logistics), state("Prep", r.prep)));
+  const linked = linkedItems(r);
+  if (linked.length) out.push(section("Linked records", linked, { cap: 12 }));
+
+  if (r.brief) {
+    const b = briefingFor(ix, e.date);
+    const w = b.workups.find((x) => x.time === r.brief.time && x.title === r.brief.title) || b.workups.find((x) => x.time === r.brief.time);
+    out.push(h("h2", { class: "tabh" }, "The brief"));
+    if (w) out.push(...workupNodes(w));
+    else out.push(h("p", { class: "note" }, `In ${r.brief.path}, ${r.brief.time} — ${r.brief.title}.`));
+    const doc = ix.byPath(r.brief.path);
+    if (doc) out.push(h("p", {}, h("a", { href: "#/card/" + enc(doc) }, "Open the whole Meeting Brief ›")));
+  } else {
+    const ev = r.event ? (d.events || []).find((v) => v.uid === r.event) : null;
+    if (ev && ev.tab && ix.byPath(ev.tab)) out.push(h("p", {}, h("a", { class: "btn-link", href: "#/card/" + enc(ix.byPath(ev.tab)) }, `The event brief: ${ev.short || ev.title} ›`)));
+    else out.push(h("p", { class: "note" }, r.prep && r.prep.state === "warn"
+      ? "No brief yet. MeetingBrief writes one for the day; the cloud Prepare run will write them ahead."
+      : "No brief: an internal or personal entry."));
+  }
+
+  out.push(h("h2", { class: "tabh" }, "Logistics and people"));
+  const keyOf = (c) => c.event.split(" × ");
+  out.push(entryCard(e, dc.open.filter((c) => keyOf(c).includes(key)), dc.ruled.filter((c) => keyOf(c).includes(key))));
+  return out;
+}
+
+function viewNews() {
+  setTitle("News & signals");
+  const d = dashboard(ix);
+  if (!d) return noDashboard();
+  const n = d.news, s = d.signals;
+  const out = sourcesLine(d, ["newsdesk", "mail"], "Signals come from the Start of Day's mail sweep.");
+  if (n) {
+    out.push(h("div", { class: "sec" }, h("h2", {}, n.title),
+      n.bottom_line ? h("div", { class: "card" }, h("p", {}, h("b", {}, "Bottom line. "), n.bottom_line)) : null));
+    for (const it of n.items) {
+      const st = (it.stance || "").toLowerCase();
+      out.push(h("div", { class: "card news" },
+        h("div", { class: "t" }, `${it.n}. ${it.title}`),
+        h("div", { class: "pills" }, it.stance ? h("span", { class: "pill " + (STANCE[st] ?? "") }, it.stance) : null,
+          it.effect ? h("span", { class: "pill kind" }, it.effect) : null, it.issues ? h("span", { class: "pill kind" }, it.issues) : null),
+        it.what ? h("p", {}, it.what) : null,
+        it.why ? h("p", { class: "note" }, h("b", {}, "Why it matters: "), it.why) : null,
+        it.line ? h("div", { class: "quote" }, it.line) : null,
+        it.careful ? h("div", { class: "careful" }, h("b", {}, "Careful: "), it.careful) : null,
+        it.url ? h("a", { class: "btn-link", href: it.url, target: "_blank", rel: "noopener noreferrer" }, "Source ↗") : null));
+    }
+    const doc = ix.byPath(n.brief);
+    const earlier = (n.earlier || []).map((p) => ix.byPath(p)).filter(Boolean).map((u) => item(ix, u));
+    if (doc) out.push(h("p", {}, h("a", { href: "#/card/" + enc(doc) }, "The whole Issues Brief, with external positions ›")));
+    if (earlier.length) out.push(section("Earlier briefs", earlier, { folded: true, showKind: false }));
+  } else out.push(h("p", { class: "empty" }, "No Issues Brief in the index yet. NewsDesk runs in the cloud at 08:00."));
+
+  if (s) {
+    const list = h("ul", { class: "items" }, s.rows.map((x) => h("li", {}, h("div", { class: "item" },
+      h("div", { class: "main" }, h("div", { class: "t" }, x.source), h("div", { class: "s" }, x.what),
+        x.matches ? h("div", { class: "n" }, "Matches: " + x.matches) : null,
+        x.action && x.action !== "—" ? h("div", { class: "n act" }, "→ " + x.action) : null)))));
+    const doc = ix.byPath(s.doc);
+    out.push(h("div", { class: "sec" }, h("h2", {}, "Incoming signals ", h("span", { class: "count" }, s.window || "")),
+      oodEl(d, ["mail"]), h("div", { class: "card" }, list),
+      doc ? h("p", { class: "note" }, h("a", { href: "#/card/" + enc(doc) }, `From the Start of Day ${stamp(s.date)} ›`)) : null));
+  }
+  return out;
+}
+
+function nextList(next, today, n = 3) {
+  const open = (next || []).filter((a) => !a.status || !/done|met/i.test(a.status)).slice(0, n);
+  if (!open.length) return null;
+  return h("ul", { class: "nx" }, open.map((a) => h("li", {},
+    a.due ? h("span", { class: "pill " + (a.due < today ? "red" : a.due === today ? "amber" : "kind") }, ddmm(a.due).slice(0, 5)) : null,
+    " ", a.what, a.who ? h("span", { class: "faint" }, ` · ${a.who}`) : null)));
+}
+
+function viewProjects() {
+  setTitle("Research & Projects");
+  const d = dashboard(ix);
+  if (!d) return noDashboard();
+  const today = todayISO();
+  const out = sourcesLine(d, []);
+  const rank = { red: 0, amber: 1, green: 2 };
+  const ps = [...d.projects].sort((a, b) => ((rank[(a.health || {}).status] ?? 3) - (rank[(b.health || {}).status] ?? 3)) || a.title.localeCompare(b.title));
+  const names = new Map(d.projects.map((p) => [p.uid.split(":")[1], p.title]));
+  out.push(h("h2", { class: "tabh" }, "Projects ", h("span", { class: "count" }, ps.length)));
+  for (const p of ps) {
+    const hs = (p.health || {}).status;
+    const dates = (p.dates || []).filter((k) => k.date >= today).slice(0, 2);
+    out.push(h("div", { class: "card pj" },
+      p.parent && names.get(p.parent) ? h("div", { class: "kicker" }, names.get(p.parent)) : null,
+      h("div", { class: "mt-head" }, h("a", { class: "t", href: "#/card/" + enc(p.uid) }, p.title),
+        hs ? h("span", { class: "pill " + (TONE[hs] || "") }, hs) : null),
+      p.health && p.health.note ? h("p", {}, p.health.note) : p.goal ? h("p", { class: "note" }, p.goal) : null,
+      nextList(p.next, today),
+      dates.length ? h("ul", { class: "nx" }, dates.map((k) => h("li", {}, h("span", { class: "pill kind" }, ddmm(k.date).slice(0, 5)), " ", k.what))) : null,
+      h("a", { class: "btn-link", href: "#/card/" + enc(p.uid) }, "Everything joined to it ›")));
+  }
+  out.push(h("h2", { class: "tabh" }, "Research ", h("span", { class: "count" }, d.research.length)));
+  const list = h("ul", { class: "items" });
+  for (const r of d.research) {
+    const href = r.kind === "folder" ? "#/folder/" + enc(r.path) : ix.byPath(r.path) ? "#/card/" + enc(ix.byPath(r.path)) : null;
+    const when = r.date || r.updated;
+    list.append(h("li", {}, h(href ? "a" : "div", { class: "item", href },
+      h("div", { class: "main" }, h("div", { class: "t" }, r.title),
+        r.situation ? h("div", { class: "s clamp" }, r.situation) : null,
+        r.kind === "folder" ? h("div", { class: "n" }, `${r.docs} file${r.docs === 1 ? "" : "s"} ›`) : null),
+      when ? h("div", { class: "side" }, ddmm(when).slice(0, 5)) : null)));
+  }
+  out.push(h("div", { class: "card" }, list));
+  return out;
+}
+
+function viewEvents() {
+  setTitle("Media & Events");
+  const d = dashboard(ix), dc = diaryCheck();
+  if (!d) return noDashboard();
+  const today = todayISO();
+  const st = dc ? diaryNow(dc) : null;
+  const xs = dc ? joined(d) : [];
+  const out = sourcesLine(d, ["outlook"]);
+  const upcoming = d.events.filter((v) => !v.end || v.end >= today)
+    .sort((a, b) => (a.start || "9999").localeCompare(b.start || "9999") || a.title.localeCompare(b.title));
+  const past = d.events.filter((v) => v.end && v.end < today).sort((a, b) => b.end.localeCompare(a.end));
+  const block = (v) => {
+    const days = v.start ? daysBetween(today, v.start) : null;
+    const when = v.start ? `${ddmm(v.start).slice(0, 5)}${v.end && v.end !== v.start ? "–" + ddmm(v.end).slice(0, 5) : ""}` : v.when || "date not set";
+    const count = days == null ? "" : days > 0 ? ` · in ${days} day${days === 1 ? "" : "s"}` : days === 0 ? " · today" : v.end >= today ? " · under way" : "";
+    // The Event Tab's pills are kept current by StartOfDay and EndOfDay; project.json's health
+    // note is not, so it shows only where there is no tab.
+    const live = v.pills && v.pills.length;
+    const hs = live ? null : (v.health || {}).status;
+    const ents = xs.filter((x) => x.r.event === v.uid && x.e.cls !== "banner" && !(st && st.past(x.e)));
+    const tab = v.tab && ix.byPath(v.tab);
+    return h("div", { class: "card ev" },
+      h("div", { class: "kicker" }, [v.type, v.our_role].filter(Boolean).join(" · ")),
+      h("div", { class: "mt-head" }, h("a", { class: "t", href: "#/card/" + enc(v.uid) }, v.title), hs ? h("span", { class: "pill " + (TONE[hs] || "") }, hs) : null),
+      h("div", { class: "s" }, when + count, v.venue ? " · " + v.venue : ""),
+      live ? h("div", { class: "pills" }, v.pills.map((p) => h("span", { class: "pill " + (TONE[p.tone] || "") }, p.text))) : null,
+      !live && v.health && v.health.note ? h("p", {}, v.health.note) : !live && v.brief ? h("p", { class: "note" }, v.brief) : null,
+      ents.length ? h("ul", { class: "items timeline" }, ents.map((x) => entryRow(x, d, false))) : null,
+      nextList(v.next, today, 2),
+      tab ? h("a", { class: "btn-link", href: "#/card/" + enc(tab) }, "Full event brief ›") : null,
+      v.tab_updated ? h("div", { class: "n faint" }, "Event tab updated " + v.tab_updated) : null);
+  };
+  out.push(h("h2", { class: "tabh" }, "Events ", h("span", { class: "count" }, upcoming.length)), ...upcoming.map(block));
+
+  const media = xs.filter((x) => x.r.media && !x.r.event && x.e.cls !== "banner" && !(st && st.past(x.e)));
+  out.push(h("h2", { class: "tabh" }, "Media"));
+  if (media.length) out.push(h("div", { class: "card" }, h("ul", { class: "items timeline" }, media.map((x) => entryRow(x, d, false)))));
+  const docs = (d.media || []).map((m) => ({ m, u: ix.byPath(m.path) })).filter((x) => x.u);
+  if (docs.length) out.push(section("Panel packs and media notes", docs.map((x) => item(ix, x.u, x.m.situation)), { showKind: false }));
+  if (!media.length && !docs.length) out.push(h("p", { class: "note" }, "Nothing in the diary or the vault marked as media."));
+  if (past.length) out.push(h("details", { class: "fold" }, h("summary", {}, "Past events ", h("span", { class: "count" }, past.length)), past.map(block)));
+  return out;
+}
+
+function viewFolder(path) {
+  setTitle(path.split("/").pop());
+  const docs = [...ix.ent.values()].filter((e) => e.kind === "document" && e.path && e.path.startsWith(path + "/"))
+    .map((e) => item(ix, e.uid)).sort((a, b) => (b.date || "").localeCompare(a.date || "") || a.title.localeCompare(b.title));
+  return [h("p", { class: "note" }, path), docs.length ? section("Documents", docs, { cap: 60, showKind: false })
+    : h("p", { class: "empty" }, "No notes from this folder are in the index (only Markdown is indexed).")];
 }
 
 const BROWSE = [
@@ -665,6 +1064,26 @@ function paintState() {
     h("span", {}, "index ", st.built)].filter(Boolean));
 }
 
+// Breadcrumbs (Richard, 02/11/2026): the recent pages as one line under the header, oldest
+// first. Going to a page already on the line cuts the line back to it; it holds the last six,
+// and lasts as long as the app is open.
+const CRUMBS_MAX = 6;
+let crumbs = (() => { try { return JSON.parse(sessionStorage.getItem("crumbs") || "[]"); } catch { return []; } })();
+function noteCrumb(hash, title) {
+  const path = (x) => x.split("?")[0];
+  const i = crumbs.findIndex((c) => c.hash === hash);
+  if (i >= 0) crumbs = crumbs.slice(0, i + 1);
+  else if (crumbs.length && path(crumbs[crumbs.length - 1].hash) === path(hash)) crumbs[crumbs.length - 1] = { hash, title };  // a filter changed
+  else crumbs = [...crumbs, { hash, title }].slice(-CRUMBS_MAX);
+  crumbs[crumbs.length - 1].title = title;
+  try { sessionStorage.setItem("crumbs", JSON.stringify(crumbs)); } catch { /* private mode */ }
+  const el = $("crumbs");
+  el.replaceChildren(...crumbs.flatMap((c, j) => [j ? h("span", { class: "sep", "aria-hidden": "true" }, "›") : null,
+    j === crumbs.length - 1 ? h("span", { class: "cur", "aria-current": "page" }, c.title || "…") : h("a", { href: c.hash }, c.title || "…")]).filter(Boolean));
+  el.hidden = crumbs.length < 2;
+  el.scrollLeft = el.scrollWidth;
+}
+
 const scrolls = new Map();
 let current = "";
 function go(hash, replace) {
@@ -673,19 +1092,28 @@ function go(hash, replace) {
 
 async function route() {
   scrolls.set(current, window.scrollY);
-  const hash = location.hash || "#/today";
+  const hash = location.hash || "#/news";
   current = hash;
   const [path, query] = hash.slice(1).split("?");
   const params = new URLSearchParams(query || "");
   const parts = path.split("/").filter(Boolean);
-  const tab = parts[0] || "today";
-  document.querySelectorAll(".tabs a").forEach((a) => a.classList.toggle("on", a.dataset.tab === (tab === "card" || tab === "workup" ? "" : tab)));
-  $("back").hidden = ["today", "logistics", "browse", "settings"].includes(tab);
+  const tab = parts[0] || "news";
+  const lit = { meeting: "meetings", folder: "projects" }[tab] || tab;
+  document.querySelectorAll(".tabs a").forEach((a) => a.classList.toggle("on", a.dataset.tab === lit));
+  document.querySelectorAll(".bar .hbtn").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
+  $("back").hidden = ["news", "diary", "meetings", "projects", "events", "today", "logistics", "browse", "settings"].includes(tab);
   let nodes;
   try {
     if (!ix && tab !== "settings") { go("#/settings", true); return; }
-    if (tab === "today") nodes = viewToday(params);
-    else if (tab === "logistics") nodes = viewLogistics();
+    if (tab === "news") nodes = viewNews();
+    else if (tab === "diary") nodes = viewDiary(params);
+    else if (tab === "meetings") nodes = viewMeetings();
+    else if (tab === "meeting") nodes = viewMeeting(decodeURIComponent(parts.slice(1).join("/")));
+    else if (tab === "projects") nodes = viewProjects();
+    else if (tab === "events") nodes = viewEvents();
+    else if (tab === "folder") nodes = viewFolder(decodeURIComponent(parts.slice(1).join("/")));
+    else if (tab === "today") nodes = viewToday(params);
+    else if (tab === "logistics") nodes = viewLogistics(params);
     else if (tab === "browse") nodes = viewBrowse(params);
     else if (tab === "card") nodes = viewCard(decodeURIComponent(parts.slice(1).join("/")));
     else if (tab === "workup") nodes = viewWorkup(parts[1], parts[2]);
@@ -697,14 +1125,16 @@ async function route() {
   }
   const focusSearch = tab === "browse" && document.activeElement && document.activeElement.type === "search";
   const caret = focusSearch ? document.activeElement.selectionStart : null;
-  view.replaceChildren(...nodes);
+  view.replaceChildren(...nodes.filter((n) => n != null && n !== false));
+  const fl = { warn: "to sort", ok: "in hand", check: "to check", person: "in person" }[params.get("f")] || params.get("f");
+  noteCrumb(hash, $("title").textContent + (fl ? " · " + fl : ""));
   if (focusSearch) { const i = view.querySelector("input[type=search]"); if (i) { i.focus(); i.setSelectionRange(caret, caret); } }
   window.scrollTo(0, scrolls.get(hash) || 0);
 }
 
 async function boot() {
   setTheme(localStorageGet("theme") || "auto");
-  $("back").addEventListener("click", () => history.length > 1 ? history.back() : go("#/today"));
+  $("back").addEventListener("click", () => history.length > 1 ? history.back() : go("#/news"));
   window.addEventListener("hashchange", route);
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
   try {

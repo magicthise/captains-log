@@ -3,15 +3,30 @@
   "short_name": "Captain's Log",
   "description": "DataVita's pipeline, partners, projects and notes, offline.",
   "lang": "en-GB",
-  "start_url": "./#/today",
+  "start_url": "./#/news",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#0D142E",
   "theme_color": "#0D142E",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
   ]
 }

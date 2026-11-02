@@ -1,9 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-<rect width="512" height="512" rx="96" fill="#0D142E"/>
-<clipPath id="c"><rect width="512" height="512" rx="96"/></clipPath>
-<g clip-path="url(#c)" fill="none">
-<circle cx="0" cy="512" r="394" stroke="#4cbae6" stroke-width="72"/>
-<circle cx="0" cy="512" r="302" stroke="#7cc242" stroke-width="72"/>
-</g>
-<polygon points="373.8,56.3 390.1,121.9 455.7,138.2 390.1,154.5 373.8,220.2 357.5,154.5 291.8,138.2 357.5,121.9" fill="#fff"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff1a8"/><stop offset=".45" stop-color="#e0b43c"/><stop offset="1" stop-color="#8a6212"/></linearGradient><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f4f6f8"/><stop offset="1" stop-color="#8e969e"/></linearGradient></defs><ellipse cx="32" cy="40" rx="30" ry="15" fill="url(#s)" stroke="#4a5057" stroke-width="1.5"/><path d="M32 2C39 19 47 41 55 62C47 55 40 51 32 51C24 51 17 55 9 62C17 41 25 19 32 2Z" fill="url(#g)" stroke="#5c3f06" stroke-width="1.5" stroke-linejoin="round"/><path d="M32 16C36 27 40 38 43 48C39 46 36 45 32 45C28 45 25 46 21 48C24 38 28 27 32 16Z" fill="#1b1d22"/></svg>
