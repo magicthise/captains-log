@@ -19,6 +19,11 @@
   --red-text: #962a1f;
   --ok-bg: #e5f3dc;
   --ok-text: #24622f;
+  --ok: #2f8f45;
+  --amber: #d9930f;
+  --red: #c13b2c;
+  --blue-bg: #e2f3fb;
+  --blue-text: #13587a;
   --bar: #0d142e;
   --bar-text: #ffffff;
   --radius: 14px;
@@ -44,6 +49,11 @@
     --red-text: #f3a49b;
     --ok-bg: #16301c;
     --ok-text: #9fd98a;
+    --ok: #8fd16a;
+    --amber: #f2b84b;
+    --red: #ff806f;
+    --blue-bg: #0f2c42;
+    --blue-text: #8fd6f2;
     --bar: #060a18;
     --shadow: none;
     color-scheme: dark;
@@ -53,6 +63,7 @@
   --bg: #0a1024; --surface: #131c38; --surface-2: #1a2546; --text: #e8edf2; --muted: #a9b7c4;
   --faint: #73839a; --line: #26325a; --link: #7fd0ef; --amber-bg: #3a2c0c; --amber-text: #f6cf7a;
   --red-bg: #3b1714; --red-text: #f3a49b; --ok-bg: #16301c; --ok-text: #9fd98a; --bar: #060a18;
+  --ok: #8fd16a; --amber: #f2b84b; --red: #ff806f; --blue-bg: #0f2c42; --blue-text: #8fd6f2;
   --shadow: none; color-scheme: dark;
 }
 
@@ -342,3 +353,21 @@ a.lg-tile { color: inherit; text-decoration: none; }
 .mt-row > b { min-width: 86px; }
 .card > p:first-child { margin-top: 0; }
 .pills .pill { white-space: normal; max-width: 100%; text-align: left; }
+
+/* Full pages: the builder's own pages in a shadow root (js/fullpage.js), 03/11/2026 */
+.fullhost { display: block; min-width: 0; margin-top: 4px; }
+.fullhost + .fullhost { margin-top: 18px; }
+.pagesec { margin-top: 18px; }
+
+/* Quick wins on the Diary tab (03/11/2026): tick buttons, links, ready-to-paste answers */
+.qw .item { align-items: flex-start; }
+.qbox { flex: none; width: 28px; height: 28px; margin-top: 1px; border-radius: 50%; border: 2px solid var(--faint);
+  background: transparent; color: transparent; font-weight: 700; font-size: 14px; display: grid; place-items: center; cursor: pointer; }
+.qw li.done .qbox { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.qw li.done .t { text-decoration: line-through; color: var(--faint); }
+.qw li.done .s, .qw li.done .side { opacity: .55; }
+.qw .side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.qlink { display: inline-block; margin: 6px 12px 0 0; font-size: 13.5px; font-weight: 600; }
+.qans { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.qans .chip { border: 1px solid var(--line); cursor: pointer; font: inherit; font-size: 12.5px;
+  white-space: normal; overflow: visible; text-overflow: clip; max-width: 100%; text-align: left; border-radius: 12px; }

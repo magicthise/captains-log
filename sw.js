@@ -1,10 +1,10 @@
 // Offline shell for the Captain's Log. The app's own files and its libraries are served
 // from the cache and refreshed in the background; the index itself lives in IndexedDB and
 // GitHub calls always go to the network. Bump VERSION when the shell changes shape.
-const VERSION = "cl-shell-4";
+const VERSION = "cl-shell-5";
 const SHELL = [
   "./", "index.html", "app.css", "manifest.webmanifest",
-  "js/app.js", "js/index.js", "js/brief.js", "js/store.js", "js/dash.js",
+  "js/app.js", "js/index.js", "js/brief.js", "js/store.js", "js/dash.js", "js/fullpage.js",
   "icons/icon.svg", "icons/app-icon.svg", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png",
   "https://cdn.jsdelivr.net/npm/@sqlite.org/sqlite-wasm@3.46.1-build1/sqlite-wasm/jswasm/sqlite3.mjs",
   "https://cdn.jsdelivr.net/npm/@sqlite.org/sqlite-wasm@3.46.1-build1/sqlite-wasm/jswasm/sqlite3.wasm",

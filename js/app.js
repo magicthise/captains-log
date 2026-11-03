@@ -6,6 +6,7 @@ import * as store from "./store.js";
 import { sqlReady, Ix, card, item, KIND_LABEL, CLOSED, ddmm, money, crmState } from "./index.js";
 import { briefingDates, briefingFor, nowAndNext, hhmm, prep } from "./brief.js";
 import { dashboard, fresh, staleOf, markOf, stamp, workingDays } from "./dash.js";
+import { mountPage } from "./fullpage.js";
 
 const $ = (id) => document.getElementById(id);
 const view = $("view");
@@ -572,6 +573,75 @@ function entryRow(x, d, past) {
     h("div", { class: "side" }, markEl(r, d))));
 }
 
+// ---------------------------------------------------------------------------
+// Quick wins (Richard, 03/11/2026: "I would love to have the quick wins part in the app"):
+// the Meeting Dashboard's jobs of 10 minutes or less, from Sales/state/app/immediate.json
+// (meta "immediate"), written by every dashboard build. A tick is kept on this device only;
+// it closes nothing in Salesforce or Outlook.
+// ---------------------------------------------------------------------------
+function todayJobs() {
+  try { return ix && ix.meta.immediate ? JSON.parse(ix.meta.immediate) : null; } catch { return null; }
+}
+const quickOf = (t) => ((t && t.queue) || []).filter((x) => x.mins && x.mins <= 10);
+function ticksOf(day) { try { return JSON.parse(localStorage.getItem("cl.ticks." + day) || "{}"); } catch { return {}; } }
+function saveTicks(day, t) { try { localStorage.setItem("cl.ticks." + day, JSON.stringify(t)); } catch { /* private mode: this visit only */ } }
+
+async function copyText(text, btn) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; } catch { /* refused: the label says so */ }
+  const was = btn.textContent;
+  btn.textContent = ok ? "Copied: paste it to Claude" : `Copy this: ${text}`;
+  setTimeout(() => { btn.textContent = was; }, 2200);
+}
+
+function quickWins() {
+  const t = todayJobs();
+  const items = quickOf(t);
+  if (!items.length) return null;
+  const box = h("div", { class: "sec qw" });
+  let open = false;
+  const draw = () => {
+    const ticks = ticksOf(t.day);
+    const sorted = [...items].sort((a, b) => (!!ticks[a.id] - !!ticks[b.id]));
+    const left = sorted.filter((x) => !ticks[x.id]);
+    const mins = left.reduce((s, x) => s + x.mins, 0);
+    const list = h("ul", { class: "items" });
+    for (const x of open ? sorted : sorted.slice(0, 5)) {
+      const done = !!ticks[x.id];
+      const tick = h("button", { class: "qbox", "aria-pressed": String(done), "aria-label": (done ? "Mark not done: " : "Mark done: ") + x.what,
+        onclick: () => { const tk = ticksOf(t.day); if (tk[x.id]) delete tk[x.id]; else tk[x.id] = new Date().toISOString(); saveTicks(t.day, tk); draw(); } }, "✓");
+      list.append(h("li", { class: done ? "done" : "" }, h("div", { class: "item" }, tick,
+        h("div", { class: "main" }, h("div", { class: "t" }, x.what), x.why ? h("div", { class: "s" }, x.why) : null,
+          done ? null : (x.links || []).map(([label, href]) => h("a", { class: "qlink", href,
+            target: /^https?:/.test(href) ? "_blank" : null, rel: /^https?:/.test(href) ? "noopener noreferrer" : null }, label + " ›")),
+          done ? null : (x.answers || []).length ? h("div", { class: "qans" }, x.answers.map((a) =>
+            h("button", { class: "chip", onclick: (e) => copyText(a, e.currentTarget) }, `Copy “${a}”`))) : null),
+        h("div", { class: "side" }, h("div", {}, h("span", { class: "pill kind" }, `${x.mins} min`)),
+          h("div", {}, h("span", { class: "pill " + (done ? "" : x.tone === "red" ? "red" : "amber") }, x.due))))));
+    }
+    const more = !open && sorted.length > 5 ? h("button", { class: "more", onclick: () => { open = true; draw(); } }, `Show ${sorted.length - 5} more`) : null;
+    const old = t.day !== todayISO();
+    box.replaceChildren(
+      h("h2", {}, "Quick wins ", h("span", { class: "count" }, left.length ? `${left.length} left · about ${mins} min` : "all done")),
+      old ? h("div", { class: "banner" }, `⏱ These are the quick wins from ${shortDay(t.day)}. The next StartOfDay or EndOfDay brings today's.`)
+        : h("p", { class: "note" }, "Each takes 10 minutes or less. Clear a few in one sitting. Ticks stay on this phone."),
+      h("div", { class: "card" }, list, more));
+  };
+  draw();
+  return box;
+}
+
+/** A one-line pointer to the quick wins, for the News tab. */
+function quickWinsPointer() {
+  const t = todayJobs();
+  const items = quickOf(t);
+  if (!items.length || t.day !== todayISO()) return null;
+  const ticks = ticksOf(t.day);
+  const left = items.filter((x) => !ticks[x.id]);
+  return h("a", { class: "card lg-pointer", href: "#/diary" }, h("div", { class: "kicker" }, "Quick wins"),
+    h("div", { class: "t" }, left.length ? `${left.length} left, about ${left.reduce((s, x) => s + x.mins, 0)} min in all ›` : "All done for today ✓"));
+}
+
 function viewDiary(params) {
   setTitle("Diary");
   const d = dashboard(ix), dc = diaryCheck();
@@ -582,6 +652,7 @@ function viewDiary(params) {
   const xs = joined(d);
   const to = (dc.window || {}).to;
   const out = sourcesLine(d, ["outlook"], "Anything added in Outlook since then is not shown; StartOfDay and EndOfDay re-read it.");
+  if (!f) out.push(quickWins());
   const ahead = xs.filter((x) => x.e.cls !== "banner" && x.e.attending !== false && !st.past(x.e));
   out.push(filterTiles("#/diary", f, [[null, ahead.length, "ahead", ""], ["warn", ahead.filter((x) => markOf(x.r) === "warn").length, "⚠ to sort", " amber"],
     ["ok", ahead.filter((x) => markOf(x.r) === "ok").length, "✓ in hand", ""]], "three"));
@@ -680,6 +751,77 @@ function linkedItems(r) {
   return [...uids].map((u) => item(ix, u)).sort((a, b) => (rank[a.kind] ?? 9) - (rank[b.kind] ?? 9));
 }
 
+// ---------------------------------------------------------------------------
+// Full pages (Richard, 03/11/2026: "the full monty in both"): the meeting briefs, event
+// briefs and project pages exactly as the Meeting Dashboard renders them, with the model
+// chain, the pressure lens, lean in / lean out and the rest. They come from
+// Sales/state/app/pages.json, carried in the index as meta "pages", and are shown by
+// fullpage.js, the same file the dashboard uses.
+// ---------------------------------------------------------------------------
+let pagesCache;
+function pagesOf() {
+  if (pagesCache !== undefined && pagesCache.ix === ix) return pagesCache.doc;
+  let doc = null;
+  try { doc = ix && ix.meta.pages ? JSON.parse(ix.meta.pages) : null; } catch { doc = null; }
+  pagesCache = { ix, doc };
+  return doc;
+}
+const PURIFY = { ADD_TAGS: ["style"], ADD_ATTR: ["target"], FORCE_BODY: true };
+const asText = (a) => a.replaceWith(Object.assign(document.createElement("span"), { textContent: a.textContent }));
+
+/** A page's links: a vault file opens as its record here; a link to another site opens
+ *  outside; anything else (the Mac's own paths) stays as text. */
+function pageLink(a) {
+  const href = a.getAttribute("href") || "";
+  if (href.startsWith("#vault=")) {
+    const uid = ix.byPath(decodeURIComponent(href.slice(7)));
+    if (uid) a.setAttribute("href", "#/card/" + enc(uid)); else asText(a);
+  } else if (/^https?:/i.test(href)) { a.target = "_blank"; a.rel = "noopener noreferrer"; }
+  else if (href !== "#" && !href.startsWith("#/")) asText(a);
+}
+
+/** Where a project page's cross-link to another project or event goes. */
+function gotoRoute(pid) {
+  const doc = pagesOf();
+  if (!doc) return null;
+  if (doc.index.events["event:" + pid]) return "#/page/" + doc.index.events["event:" + pid];
+  if (doc.index.projects["project:" + pid]) return "#/project/" + enc("project:" + pid);
+  return null;
+}
+
+function pageNode(key, sub) {
+  const doc = pagesOf();
+  const p = doc && doc.pages[key];
+  if (!p) return h("p", { class: "empty" }, "That page is not in this index yet. The next Meeting Dashboard build adds it.");
+  const host = h("div", { class: "fullhost" });
+  mountPage(host, { css: doc.css, html: window.DOMPurify.sanitize(p.html, PURIFY), sub,
+    onGoto: (pid) => { const r = gotoRoute(pid); if (r) location.hash = r; }, onLink: pageLink });
+  return host;
+}
+
+function builtLine() {
+  const doc = pagesOf();
+  return doc ? h("p", { class: "note" }, `As the Meeting Dashboard built it, ${stamp(doc.built_at)}.`) : null;
+}
+
+function viewPage(key, params) {
+  const doc = pagesOf();
+  setTitle((doc && doc.pages[key] && doc.pages[key].label) || "Page");
+  return [builtLine(), pageNode(key, params.get("sub"))];
+}
+
+function viewProjectPage(uid) {
+  const doc = pagesOf();
+  const d = dashboard(ix);
+  const p = d && d.projects.find((x) => x.uid === uid);
+  setTitle(p ? p.title : "Project");
+  const x = doc && doc.index.projects[uid];
+  const all = h("p", {}, h("a", { class: "btn-link", href: "#/card/" + enc(uid) }, "Everything joined to it ›"));
+  if (!x) return [h("p", { class: "empty" }, "No project page in this index yet."), all];
+  return [builtLine(), pageNode(x.page),
+    ...(x.extra || []).map(([title, key]) => h("div", { class: "pagesec" }, h("h2", { class: "tabh" }, title), pageNode(key))), all];
+}
+
 function viewMeeting(key) {
   setTitle("Meeting");
   const d = dashboard(ix), dc = diaryCheck();
@@ -694,7 +836,12 @@ function viewMeeting(key) {
   const linked = linkedItems(r);
   if (linked.length) out.push(section("Linked records", linked, { cap: 12 }));
 
-  if (r.brief) {
+  const full = pagesOf() && pagesOf().index.diary[key];
+  if (full) {
+    out.push(h("h2", { class: "tabh" }, "The full brief"), pageNode(full[0], full[1]));
+    const doc = r.brief && ix.byPath(r.brief.path);
+    if (doc) out.push(h("p", {}, h("a", { href: "#/card/" + enc(doc) }, "Open the whole Meeting Brief ›")));
+  } else if (r.brief) {
     const b = briefingFor(ix, e.date);
     const w = b.workups.find((x) => x.time === r.brief.time && x.title === r.brief.title) || b.workups.find((x) => x.time === r.brief.time);
     out.push(h("h2", { class: "tabh" }, "The brief"));
@@ -722,6 +869,7 @@ function viewNews() {
   if (!d) return noDashboard();
   const n = d.news, s = d.signals;
   const out = sourcesLine(d, ["newsdesk", "mail"], "Signals come from the Start of Day's mail sweep.");
+  out.push(quickWinsPointer());
   if (n) {
     out.push(h("div", { class: "sec" }, h("h2", {}, n.title),
       n.bottom_line ? h("div", { class: "card" }, h("p", {}, h("b", {}, "Bottom line. "), n.bottom_line)) : null));
@@ -777,14 +925,16 @@ function viewProjects() {
   for (const p of ps) {
     const hs = (p.health || {}).status;
     const dates = (p.dates || []).filter((k) => k.date >= today).slice(0, 2);
+    const full = pagesOf() && pagesOf().index.projects[p.uid];
+    const href = full ? "#/project/" + enc(p.uid) : "#/card/" + enc(p.uid);
     out.push(h("div", { class: "card pj" },
       p.parent && names.get(p.parent) ? h("div", { class: "kicker" }, names.get(p.parent)) : null,
-      h("div", { class: "mt-head" }, h("a", { class: "t", href: "#/card/" + enc(p.uid) }, p.title),
+      h("div", { class: "mt-head" }, h("a", { class: "t", href }, p.title),
         hs ? h("span", { class: "pill " + (TONE[hs] || "") }, hs) : null),
       p.health && p.health.note ? h("p", {}, p.health.note) : p.goal ? h("p", { class: "note" }, p.goal) : null,
       nextList(p.next, today),
       dates.length ? h("ul", { class: "nx" }, dates.map((k) => h("li", {}, h("span", { class: "pill kind" }, ddmm(k.date).slice(0, 5)), " ", k.what))) : null,
-      h("a", { class: "btn-link", href: "#/card/" + enc(p.uid) }, "Everything joined to it ›")));
+      h("a", { class: "btn-link", href }, full ? "Full project page ›" : "Everything joined to it ›")));
   }
   out.push(h("h2", { class: "tabh" }, "Research ", h("span", { class: "count" }, d.research.length)));
   const list = h("ul", { class: "items" });
@@ -822,6 +972,7 @@ function viewEvents() {
     const hs = live ? null : (v.health || {}).status;
     const ents = xs.filter((x) => x.r.event === v.uid && x.e.cls !== "banner" && !(st && st.past(x.e)));
     const tab = v.tab && ix.byPath(v.tab);
+    const page = pagesOf() && pagesOf().index.events[v.uid];
     return h("div", { class: "card ev" },
       h("div", { class: "kicker" }, [v.type, v.our_role].filter(Boolean).join(" · ")),
       h("div", { class: "mt-head" }, h("a", { class: "t", href: "#/card/" + enc(v.uid) }, v.title), hs ? h("span", { class: "pill " + (TONE[hs] || "") }, hs) : null),
@@ -830,7 +981,8 @@ function viewEvents() {
       !live && v.health && v.health.note ? h("p", {}, v.health.note) : !live && v.brief ? h("p", { class: "note" }, v.brief) : null,
       ents.length ? h("ul", { class: "items timeline" }, ents.map((x) => entryRow(x, d, false))) : null,
       nextList(v.next, today, 2),
-      tab ? h("a", { class: "btn-link", href: "#/card/" + enc(tab) }, "Full event brief ›") : null,
+      page ? h("a", { class: "btn-link", href: "#/page/" + page }, "Full event brief ›")
+        : tab ? h("a", { class: "btn-link", href: "#/card/" + enc(tab) }, "Full event brief ›") : null,
       v.tab_updated ? h("div", { class: "n faint" }, "Event tab updated " + v.tab_updated) : null);
   };
   out.push(h("h2", { class: "tabh" }, "Events ", h("span", { class: "count" }, upcoming.length)), ...upcoming.map(block));
@@ -1098,7 +1250,7 @@ async function route() {
   const params = new URLSearchParams(query || "");
   const parts = path.split("/").filter(Boolean);
   const tab = parts[0] || "news";
-  const lit = { meeting: "meetings", folder: "projects" }[tab] || tab;
+  const lit = { meeting: "meetings", folder: "projects", project: "projects" }[tab] || tab;
   document.querySelectorAll(".tabs a").forEach((a) => a.classList.toggle("on", a.dataset.tab === lit));
   document.querySelectorAll(".bar .hbtn").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
   $("back").hidden = ["news", "diary", "meetings", "projects", "events", "today", "logistics", "browse", "settings"].includes(tab);
@@ -1112,6 +1264,8 @@ async function route() {
     else if (tab === "projects") nodes = viewProjects();
     else if (tab === "events") nodes = viewEvents();
     else if (tab === "folder") nodes = viewFolder(decodeURIComponent(parts.slice(1).join("/")));
+    else if (tab === "page") nodes = viewPage(decodeURIComponent(parts.slice(1).join("/")), params);
+    else if (tab === "project") nodes = viewProjectPage(decodeURIComponent(parts.slice(1).join("/")));
     else if (tab === "today") nodes = viewToday(params);
     else if (tab === "logistics") nodes = viewLogistics(params);
     else if (tab === "browse") nodes = viewBrowse(params);
